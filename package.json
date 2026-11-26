@@ -1,0 +1,14 @@
+{
+  "name": "sre-agent-incident-response",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A small web application for running and chatting with the saved SRE incident-response agent through the OpenAI Agents API.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
