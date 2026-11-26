@@ -135,6 +135,22 @@
     if (event.session?.id) setSession(event.session.id);
     if (event.type === "agent.session.created" && event.session?.id) setSession(event.session.id);
   }
+  async function inspectRequiredActions() {
+    if (!sessionId) return;
+    try {
+      const response = await fetch("/api/sessions/" + encodeURIComponent(sessionId));
+      const state = await response.json();
+      if (!response.ok) throw new Error(state.error || "Could not retrieve session state.");
+      const actions = Array.isArray(state.required_actions) ? state.required_actions : [];
+      if (actions.length) {
+        showNotice("The agent is waiting for required action(s). Review these details before approving or handling anything:\\n" + JSON.stringify(actions, null, 2));
+      } else {
+        showNotice("The agent requested an action or environment connection. Current session status: " + (state.status || "unknown") + ". No pending action details were returned.");
+      }
+    } catch (error) {
+      showNotice("The agent requested an action. Session lookup failed: " + error.message);
+    }
+  }
   function handleEvent(event) {
     extractSessionId(event);
     const type = event.type || "event";
@@ -148,7 +164,7 @@
       if (!currentAssistant) currentAssistant = addMessage("assistant");
       currentAssistant.textContent = event.text || currentAssistant.textContent;
     } else if (type === "agent.session.requires_action" || type === "agent.session.action_required") {
-      showNotice("The agent needs an action or environment connection. Check the session status before continuing; this starter app reports the requirement but does not automatically approve actions.");
+      void inspectRequiredActions();
     } else if (type === "agent.session.turn.failed" || type === "agent.session.failed" || type === "agent.session.environment.failed" || type === "error") {
       showNotice(event.error?.message || event.message || "The agent reported a failure. Review the event stream and session state.");
     } else if (type === "agent.session.turn.cancelled") {
