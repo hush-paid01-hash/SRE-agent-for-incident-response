@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10151f">
+  <title>SRE Incident Response Agent</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1018; --panel:#121a26; --panel2:#182333; --line:#29374a; --muted:#9baabd; --text:#edf3fa; --accent:#7dd3fc; --green:#7ee0b2; --red:#ff9b9b; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:radial-gradient(ellipse at top left,#17283a 0%,var(--bg) 48%); color:var(--text); font:15px/1.55 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .shell { width:min(100%,1040px); margin:0 auto; padding:28px 18px 40px; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:14px; margin-bottom:22px; }
+    .brand { display:flex; align-items:center; gap:12px; }
+    .mark { width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(135deg,#0e7490,#2563eb);font-size:21px;box-shadow:0 8px 30px #0e749055; }
+    h1 { margin:0;font-size:clamp(20px,4vw,27px);letter-spacing:-.03em; }
+    .sub { color:var(--muted);font-size:13px; }
+    .status { border:1px solid var(--line);border-radius:999px;padding:7px 11px;color:var(--muted);font-size:12px;white-space:nowrap; }
+    .status.ok { color:var(--green);border-color:#285b4a; }
+    .layout { display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:16px;align-items:start; }
+    .panel { background:#111a27eF;border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 18px 55px #0003; }
+    .panel-head { padding:15px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px; }
+    .panel-head strong { font-size:14px; }
+    .tiny { color:var(--muted);font-size:12px; }
+    #conversation { min-height:360px;max-height:58vh;overflow:auto;padding:18px;display:flex;flex-direction:column;gap:14px; }
+    .empty { margin:auto;text-align:center;max-width:410px;color:var(--muted);padding:32px 12px; }
+    .empty .symbol { font-size:34px;margin-bottom:10px; }
+    .message { max-width:92%;padding:12px 14px;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere; }
+    .message.user { align-self:flex-end;background:#173d59;border:1px solid #245879; }
+    .message.assistant { align-self:flex-start;background:var(--panel2);border:1px solid #2b3c51; }
+    .message .who { color:var(--accent);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px; }
+    .message.user .who { color:#b7e7ff; }
+    .composer { border-top:1px solid var(--line);padding:14px; }
+    textarea { width:100%;resize:vertical;min-height:92px;max-height:240px;padding:12px 13px;background:#0c131d;border:1px solid #34445a;border-radius:12px;color:var(--text);font:inherit;outline:none; }
+    textarea:focus { border-color:var(--accent);box-shadow:0 0 0 3px #38bdf822; }
+    .actions { display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px; }
+    button { border:0;border-radius:11px;padding:10px 15px;background:#0e7490;color:white;font-weight:700;font-size:13px;cursor:pointer; }
+    button:hover { filter:brightness(1.12); } button:disabled { opacity:.5;cursor:not-allowed; }
+    button.secondary { background:#253449;color:#d9e6f5;border:1px solid #3a4c62; }
+    aside { display:flex;flex-direction:column;gap:12px; }
+    .card { background:#111a27;border:1px solid var(--line);border-radius:15px;padding:15px; }
+    .card h2 { margin:0 0 9px;font-size:13px; }
+    .card p,.card li { color:var(--muted);font-size:12px;line-height:1.55; }
+    .card ul { padding-left:17px;margin:8px 0 0; }
+    .kv { display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:7px 0;border-bottom:1px solid #243145; }
+    .kv:last-child { border:0; }.kv span:first-child { color:var(--muted); }.kv span:last-child { text-align:right;overflow-wrap:anywhere; }
+    #events { max-height:180px;overflow:auto;font:11px/1.5 ui-monospace,monospace;color:#a9bdd3; }
+    .event { padding:4px 0;border-bottom:1px solid #243145;overflow-wrap:anywhere; }
+    .notice { display:none;padding:10px 12px;margin:0 14px 12px;border-radius:10px;background:#3a2024;border:1px solid #754047;color:#ffd5d5;font-size:12px; }
+    .notice.show { display:block; }
+    @media(max-width:760px) { .layout{grid-template-columns:1fr;} aside{display:grid;grid-template-columns:1fr 1fr;} aside .card:last-child{grid-column:1/-1;} #conversation{min-height:300px;max-height:52vh;} }
+    @media(max-width:480px) { .shell{padding:18px 12px 28px;} header{align-items:flex-start;} .status{font-size:10px;} aside{display:flex;} .message{max-width:98%;} }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand"><div class="mark">⌁</div><div><h1>SRE Incident Response</h1><div class="sub">Production incident investigation workspace</div></div></div>
+      <div id="connection" class="status">Checking configuration…</div>
+    </header>
+    <div class="layout">
+      <section class="panel">
+        <div class="panel-head"><strong>Agent conversation</strong><span id="session-label" class="tiny">No active session</span></div>
+        <div id="conversation" aria-live="polite"><div class="empty"><div class="symbol">◈</div><strong>Ready to investigate</strong><p>Start a session to connect to your saved SRE agent. It will begin by gathering incident context and customer impact.</p></div></div>
+        <div id="notice" class="notice" role="alert"></div>
+        <form id="composer" class="composer">
+          <textarea id="message" placeholder="Describe the incident, paste logs, or ask the SRE agent a question…" aria-label="Message to the SRE agent"></textarea>
+          <div class="actions"><span id="hint" class="tiny">Your API key stays on this server.</span><div><button type="button" id="new-session" class="secondary">New session</button> <button id="send" type="submit">Start session</button></div></div>
+        </form>
+      </section>
+      <aside>
+        <section class="card"><h2>Session details</h2><div class="kv"><span>Agent</span><span>SRE agent for incident response</span></div><div class="kv"><span>Environment</span><span>OpenAI-hosted</span></div><div class="kv"><span>Model</span><span>gpt-6.2-astra</span></div><div class="kv"><span>Reasoning</span><span>Medium</span></div><div class="kv"><span>Session ID</span><span id="session-id">—</span></div></section>
+        <section class="card"><h2>Safety guardrails</h2><ul><li>Read-only investigation by default</li><li>No restarts, infrastructure changes, or rollbacks without your explicit approval</li><li>Evidence and hypotheses should be clearly distinguished</li><li>Never assume monitoring or cloud access exists</li></ul></section>
+        <section class="card"><h2>Live event stream</h2><div id="events"><div class="tiny">Events will appear when a session starts.</div></div></section>
+      </aside>
+    </div>
+  </main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const conversation = $("conversation");
+  const form = $("composer");
+  const input = $("message");
+  const sendButton = $("send");
+  const sessionLabel = $("session-label");
+  const sessionIdLabel = $("session-id");
+  const eventsBox = $("events");
+  const notice = $("notice");
+  let sessionId = localStorage.getItem("sre-agent-session-id") || "";
+  let active = false;
+  let currentAssistant = null;
+
+  function showNotice(message) { notice.textContent = message; notice.classList.add("show"); }
+  function clearNotice() { notice.textContent = ""; notice.classList.remove("show"); }
+  function addMessage(role, text = "") {
+    const node = document.createElement("div");
+    node.className = "message " + role;
+    const who = document.createElement("div");
+    who.className = "who";
+    who.textContent = role === "user" ? "You" : "SRE agent";
+    const body = document.createElement("div");
+    body.className = "body";
+    body.textContent = text;
+    node.append(who, body);
+    conversation.append(node);
+    conversation.scrollTop = conversation.scrollHeight;
+    return body;
+  }
+  function resetConversation() {
+    conversation.replaceChildren();
+    eventsBox.replaceChildren();
+    currentAssistant = null;
+  }
+  function logEvent(type, detail) {
+    const row = document.createElement("div");
+    row.className = "event";
+    row.textContent = type + (detail ? " · " + detail : "");
+    eventsBox.prepend(row);
+    while (eventsBox.children.length > 35) eventsBox.lastChild.remove();
+  }
+  function setSession(id) {
+    if (!id) return;
+    sessionId = id;
+    localStorage.setItem("sre-agent-session-id", id);
+    sessionIdLabel.textContent = id;
+    sessionLabel.textContent = "Session active";
+  }
+  function setBusy(value) {
+    active = value;
+    sendButton.disabled = value;
+    $("new-session").disabled = value;
+    sendButton.textContent = value ? "Working…" : (sessionId ? "Send message" : "Start session");
+  }
+  function extractSessionId(event) {
+    if (event.session_id) setSession(event.session_id);
+    if (event.session?.id) setSession(event.session.id);
+    if (event.type === "agent.session.created" && event.session?.id) setSession(event.session.id);
+  }
+  function handleEvent(event) {
+    extractSessionId(event);
+    const type = event.type || "event";
+    const detail = event.turn?.status || event.session?.status || "";
+    logEvent(type, detail);
+    if (type === "agent.session.turn.output_text.delta") {
+      if (!currentAssistant) currentAssistant = addMessage("assistant");
+      currentAssistant.textContent += event.delta || "";
+      conversation.scrollTop = conversation.scrollHeight;
+    } else if (type === "agent.session.turn.output_text.done") {
+      if (!currentAssistant) currentAssistant = addMessage("assistant");
+      currentAssistant.textContent = event.text || currentAssistant.textContent;
+    } else if (type === "agent.session.requires_action" || type === "agent.session.action_required") {
+      showNotice("The agent needs an action or environment connection. Check the session status before continuing; this starter app reports the requirement but does not automatically approve actions.");
+    } else if (type === "agent.session.turn.failed" || type === "agent.session.failed" || type === "agent.session.environment.failed" || type === "error") {
+      showNotice(event.error?.message || event.message || "The agent reported a failure. Review the event stream and session state.");
+    } else if (type === "agent.session.turn.cancelled") {
+      showNotice("The agent turn was cancelled.");
+    }
+  }
+  async function consumeSSE(response) {
+    if (!response.ok) {
+      let data = {};
+      try { data = await response.json(); } catch {}
+      throw new Error(data.error || "Request failed with HTTP " + response.status);
+    }
+    if (!response.body) throw new Error("The server returned no event stream.");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let eventName = "";
+    let dataLines = [];
+    const dispatch = () => {
+      if (!dataLines.length) { eventName = ""; return; }
+      const raw = dataLines.join("\n");
+      dataLines = [];
+      let event;
+      try { event = JSON.parse(raw); } catch { event = { type: eventName || "message", raw }; }
+      if (!event.type && eventName) event.type = eventName;
+      handleEvent(event);
+      eventName = "";
+    };
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (line === "") { dispatch(); continue; }
+        if (line.startsWith(":")) continue;
+        if (line.startsWith("event:")) eventName = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+      }
+      if (done) { if (buffer.startsWith("data:")) dataLines.push(buffer.slice(5).trimStart()); dispatch(); break; }
+    }
+  }
+  async function checkHealth() {
+    try {
+      const response = await fetch("/api/health");
+      const data = await response.json();
+      const badge = $("connection");
+      if (data.apiKeyConfigured) { badge.textContent = "Server connected · API key set"; badge.classList.add("ok"); }
+      else { badge.textContent = "API key not configured"; showNotice("Add OPENAI_API_KEY to your server .env file, then restart the application."); }
+      if (sessionId) {
+        sessionIdLabel.textContent = sessionId;
+        sessionLabel.textContent = "Saved session";
+        sendButton.textContent = "Send message";
+      }
+    } catch { $("connection").textContent = "Server unavailable"; }
+  }
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (active) return;
+    clearNotice();
+    const text = input.value.trim();
+    if (sessionId && !text) return showNotice("Enter a message first.");
+    const initial = text || undefined;
+    if (initial) addMessage("user", initial);
+    input.value = "";
+    currentAssistant = null;
+    setBusy(true);
+    try {
+      let response;
+      if (!sessionId) {
+        response = await fetch("/api/sessions", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ input: initial })
+        });
+      } else {
+        response = await fetch("/api/sessions/" + encodeURIComponent(sessionId) + "/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: text })
+        });
+      }
+      await consumeSSE(response);
+      if (!sessionId) {
+        const match = [...eventsBox.children].map(x => x.textContent).join(" ");
+        if (!match.includes("agent.session")) logEvent("Stream ended; check session details if no reply appeared");
+      }
+    } catch (error) {
+      showNotice(error.message);
+      logEvent("client.error", error.message);
+    } finally {
+      setBusy(false);
+    }
+  });
+  $("new-session").addEventListener("click", () => {
+    if (active) return;
+    sessionId = "";
+    localStorage.removeItem("sre-agent-session-id");
+    sessionIdLabel.textContent = "—";
+    sessionLabel.textContent = "No active session";
+    sendButton.textContent = "Start session";
+    resetConversation();
+    clearNotice();
+    input.focus();
+  });
+  checkHealth();
+</script>
+</body>
+</html>
