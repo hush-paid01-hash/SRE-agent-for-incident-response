@@ -1,0 +1,33 @@
+name: Node.js CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate JavaScript syntax and package metadata
+        run: |
+          node --check server.mjs
+          node -e "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8'))"
+      - name: Smoke test the local web server
+        run: |
+          HOST=127.0.0.1 PORT=3187 node server.mjs > /tmp/sre-agent.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:3187/api/health > /tmp/health.json; then
+              break
+            fi
+            sleep 1
+          done
+          node -e "const h=require('/tmp/health.json'); if (!h.ok || h.apiKeyConfigured) process.exit(1)"
+          curl --fail --silent http://127.0.0.1:3187/ | grep -q 'SRE Incident Response'
